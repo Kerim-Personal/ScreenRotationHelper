@@ -25,9 +25,7 @@ public class OverlayService extends Service {
     public void onCreate() {
         super.onCreate();
 
-        // Gerekli izin yoksa servisi sonlandır
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "Overlay izni gerekli", Toast.LENGTH_SHORT).show();
             stopSelf();
             return;
         }
@@ -44,8 +42,8 @@ public class OverlayService extends Service {
                 PixelFormat.TRANSLUCENT
         );
 
-        // Sol alt köşe
-        params.gravity = Gravity.START | Gravity.BOTTOM;
+        // Sağ alt köşe olarak güncellendi
+        params.gravity = Gravity.END | Gravity.BOTTOM;
         params.x = 0;
         params.y = 0;
 
@@ -57,8 +55,14 @@ public class OverlayService extends Service {
         ImageButton rotateButton = floatingView.findViewById(R.id.rotateButton);
         rotateButton.setOnClickListener(v -> {
             try {
-                Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, 0);
-                Toast.makeText(this, "Ekran döndürme kapatıldı", Toast.LENGTH_SHORT).show();
+                // Ekran döndürme ayarını değiştir (0: kapalı, 1: açık)
+                int currentRotation = Settings.System.getInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION);
+                int newRotation = (currentRotation == 0) ? 1 : 0;
+                Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, newRotation);
+
+                String message = (newRotation == 0) ? "Ekran döndürme kapatıldı" : "Ekran döndürme açıldı";
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+
             } catch (Exception e) {
                 Toast.makeText(this, "Hata: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }

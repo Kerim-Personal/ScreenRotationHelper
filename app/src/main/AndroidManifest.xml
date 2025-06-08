@@ -2,7 +2,6 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.example.screenrotationhelper">
 
-    <!-- Gerekli izinler -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
 
@@ -12,17 +11,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
-        <!-- Ana ekran -->
-        <activity android:name=".OverlayService"
-            android:exported="true"
-            tools:ignore="Instantiatable">
+        <activity android:name=".MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
-        <!-- Arka planda çalışan servis -->
         <service android:name=".OverlayService"
             android:exported="false"/>
     </application>
