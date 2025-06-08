@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">ScreenRotationHelper</string>
+    <string name="rotate_button_description">Ekran döndürmeyi kapat</string>
 </resources>
