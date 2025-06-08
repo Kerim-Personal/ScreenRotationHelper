@@ -5,7 +5,6 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
-import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.os.Build;
@@ -15,10 +14,10 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.OrientationEventListener;
+import android.view.Surface;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageButton;
-
 import androidx.core.app.NotificationCompat;
 
 public class OverlayService extends Service {
@@ -32,7 +31,7 @@ public class OverlayService extends Service {
     private OrientationEventListener orientationEventListener;
 
     private volatile boolean isButtonShowing = false;
-    private int lastKnownDeviceOrientation = -1; // -1 = bilinmiyor
+    private int lastKnownPhysicalOrientation = Configuration.ORIENTATION_PORTRAIT;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -42,29 +41,41 @@ public class OverlayService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        startAsForegroundService(); // Servisin Android tarafından kapatılmasını engelle
-
+        startAsForegroundService();
         setupViews();
         setupLayoutParams();
         setupClickListener();
         setupOrientationListener();
-        Log.d(TAG, "Servis başarıyla kuruldu ve oryantasyon dinliyor.");
+        Log.d(TAG, "Servis kuruldu.");
     }
 
+    /**
+     * Servisin arkaplanda çalışmasını sağlar ve en az rahatsız edici
+     * şekilde bir bildirim oluşturur.
+     */
     private void startAsForegroundService() {
         NotificationManager notificationManager = getSystemService(NotificationManager.class);
+        String channelId = NOTIFICATION_CHANNEL_ID;
+
+        // Android 8 ve sonrası için Bildirim Kanalı oluşturuyoruz
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(NOTIFICATION_CHANNEL_ID,
+            // Önem seviyesini MINIMUM yaparak durum çubuğunda ikon görünmesini engelliyoruz.
+            NotificationChannel channel = new NotificationChannel(channelId,
                     "Ekran Döndürme Servisi",
-                    NotificationManager.IMPORTANCE_LOW); // Düşük öncelik, ses çıkarmaz
+                    NotificationManager.IMPORTANCE_MIN);
+
+            channel.setDescription("Servisin arkaplanda çalışmasını sağlayan bildirim");
             notificationManager.createNotificationChannel(channel);
         }
 
-        Notification notification = new NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+        Notification notification = new NotificationCompat.Builder(this, channelId)
                 .setContentTitle("Ekran Döndürme Yardımcısı")
-                .setContentText("Servis arka planda çalışıyor.")
-                .setSmallIcon(R.drawable.x) // Bildirim ikonu
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setContentText("Servis aktif")
+                .setSmallIcon(R.drawable.ic_rotate_elegant) // Şık ikonumuz
+                .setOngoing(true)
+                .setShowWhen(false) // Zaman damgasını gizler
+                // Önceliği MINIMUM yaparak bildirimin en altta ve küçük görünmesini sağlıyoruz.
+                .setPriority(NotificationCompat.PRIORITY_MIN)
                 .build();
 
         startForeground(NOTIFICATION_ID, notification);
@@ -81,11 +92,10 @@ public class OverlayService extends Service {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.END | Gravity.BOTTOM;
-        params.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
     }
 
     private void setupClickListener() {
@@ -94,14 +104,14 @@ public class OverlayService extends Service {
             if (!isButtonShowing) return;
 
             try {
-                // Tıklandığı andaki fiziksel yön neyse, ekranı o yöne kilitle
-                if (lastKnownDeviceOrientation == Configuration.ORIENTATION_LANDSCAPE) {
-                    params.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+                if (lastKnownPhysicalOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    Settings.System.putInt(getContentResolver(), Settings.System.USER_ROTATION, Surface.ROTATION_90);
                 } else {
-                    params.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+                    Settings.System.putInt(getContentResolver(), Settings.System.USER_ROTATION, Surface.ROTATION_0);
                 }
-                windowManager.updateViewLayout(floatingView, params);
                 hideButton();
+                Log.d(TAG, "Ekran manuel olarak kilitlendi.");
+
             } catch (Exception e) {
                 Log.e(TAG, "Rotasyon kilidi uygulanırken hata oluştu.", e);
             }
@@ -114,33 +124,39 @@ public class OverlayService extends Service {
             public void onOrientationChanged(int orientation) {
                 if (orientation == ORIENTATION_UNKNOWN) return;
 
-                // Otomatik döndürme açıksa hiçbir şey yapma
                 try {
                     if (Settings.System.getInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION) == 1) {
-                        hideButton(); return;
+                        hideButton();
+                        return;
                     }
-                } catch (Settings.SettingNotFoundException e) { /* ignore */ }
+                } catch (Settings.SettingNotFoundException e) {
+                    // ignore
+                }
 
-                // 1. Cihazın FİZİKSEL yönünü daha kararlı bir mantıkla belirle
-                int currentOrientation;
-                if ((orientation > 45 && orientation < 135) || (orientation > 225 && orientation < 315)) {
-                    currentOrientation = Configuration.ORIENTATION_LANDSCAPE;
+                int currentPhysicalOrientation;
+                if ((orientation >= 70 && orientation <= 110) || (orientation >= 250 && orientation <= 290)) {
+                    currentPhysicalOrientation = Configuration.ORIENTATION_LANDSCAPE;
+                } else if ((orientation >= 340 || orientation <= 20) || (orientation >= 160 && orientation <= 200)) {
+                    currentPhysicalOrientation = Configuration.ORIENTATION_PORTRAIT;
                 } else {
-                    currentOrientation = Configuration.ORIENTATION_PORTRAIT;
+                    return;
                 }
 
-                // Sadece yön değiştiyse durumu güncelle (titremeyi engeller)
-                if (lastKnownDeviceOrientation != currentOrientation) {
-                    lastKnownDeviceOrientation = currentOrientation;
+                lastKnownPhysicalOrientation = currentPhysicalOrientation;
+
+                int currentLockedOrientation;
+                try {
+                    int rotation = Settings.System.getInt(getContentResolver(), Settings.System.USER_ROTATION);
+                    if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+                        currentLockedOrientation = Configuration.ORIENTATION_LANDSCAPE;
+                    } else {
+                        currentLockedOrientation = Configuration.ORIENTATION_PORTRAIT;
+                    }
+                } catch (Settings.SettingNotFoundException e) {
+                    currentLockedOrientation = Configuration.ORIENTATION_PORTRAIT;
                 }
 
-                // 2. Ekranın KİLİTLİ yönünü belirle
-                int lockedOrientation = (params.screenOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
-                        ? Configuration.ORIENTATION_LANDSCAPE
-                        : Configuration.ORIENTATION_PORTRAIT;
-
-                // 3. FİZİKSEL yön ile KİLİTLİ yön farklıysa butonu göster
-                if (lastKnownDeviceOrientation != lockedOrientation) {
+                if (currentPhysicalOrientation != currentLockedOrientation) {
                     showButton();
                 } else {
                     hideButton();
@@ -150,18 +166,23 @@ public class OverlayService extends Service {
 
         if (orientationEventListener.canDetectOrientation()) {
             orientationEventListener.enable();
+            Log.d(TAG, "Oryantasyon dinleyicisi başlatıldı.");
         } else {
-            stopSelf(); // Sensör yoksa servis çalışamaz.
+            Log.e(TAG, "Oryantasyon sensörü bulunamadı. Servis durduruluyor.");
+            stopSelf();
         }
     }
 
     private void showButton() {
         if (!isButtonShowing) {
-            isButtonShowing = true; // Ekleme işleminden önce durumu değiştir
+            isButtonShowing = true;
             try {
-                windowManager.addView(floatingView, params);
+                if (floatingView.getWindowToken() == null) {
+                    windowManager.addView(floatingView, params);
+                    Log.d(TAG, "Buton gösterildi.");
+                }
             } catch (Exception e) {
-                isButtonShowing = false; // Başarısız olursa durumu geri al
+                isButtonShowing = false;
                 Log.e(TAG, "Buton eklenirken hata.", e);
             }
         }
@@ -169,11 +190,13 @@ public class OverlayService extends Service {
 
     private void hideButton() {
         if (isButtonShowing) {
-            isButtonShowing = false; // Kaldırma işleminden önce durumu değiştir
+            isButtonShowing = false;
             try {
-                windowManager.removeView(floatingView);
+                if (floatingView.getWindowToken() != null) {
+                    windowManager.removeView(floatingView);
+                }
             } catch (Exception e) {
-                Log.e(TAG, "Buton kaldırılırken hata.", e);
+                // ignore
             }
         }
     }
@@ -182,9 +205,9 @@ public class OverlayService extends Service {
     public void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "Servis yok ediliyor.");
-        hideButton();
         if (orientationEventListener != null) {
             orientationEventListener.disable();
         }
+        hideButton();
     }
 }
